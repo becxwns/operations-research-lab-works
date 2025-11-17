@@ -1,0 +1,131 @@
+import gurobipy as gp
+from gurobipy import GRB
+
+def min_total_tardiness(p, d):
+    n = len(p)
+    J = range(n)
+    P = sum(p)
+
+    m = gp.Model("SingleMachine_Tardiness")
+
+    S = m.addVars(J, lb=0.0, name="S")
+    C = m.addVars(J, lb=0.0, name="C")
+    T = m.addVars(J, lb=0.0, name="T")
+    x = m.addVars(J, J, vtype=GRB.BINARY, name="x")
+
+    m.setObjective(gp.quicksum(T[j] for j in J), GRB.MINIMIZE)
+
+    for j in J:
+        m.addConstr(C[j] == S[j] + p[j])
+        m.addConstr(T[j] >= C[j] - d[j])
+        for k in J:
+            if j == k:
+                m.addConstr(x[j,j] == 0)
+            else:
+                m.addConstr(S[j] >= S[k] + p[k] - P * x[j,k])
+    for j in J:
+        for k in range(j+1, n):
+            m.addConstr(x[j,k] + x[k,j] == 1)
+
+    m.optimize()
+
+    if m.Status == GRB.OPTIMAL:
+        def start_time(j):
+            return (S[j].X, j)
+
+        schedule = sorted(J, key=start_time)
+        obj = m.ObjVal
+
+        # === 결과 출력 ===
+        print("=== 실행 결과 ===")
+        print("작업 순서:", " -> ".join(str(j+1) for j in schedule))
+        print("Total tardiness:", obj)
+
+        return schedule, obj
+    else:
+        print("No feasible solution")
+        return None, None
+
+min_total_tardiness(p, d)
+
+from itertools import permutations
+
+def calc_total_tardiness(order, p, d):
+    time = 0
+    total_T = 0
+    for j in order:
+        time += p[j]
+        Tj = max(0, time - d[j])
+        total_T += Tj
+    return total_T
+
+p = [2, 4, 3]
+d = [3, 2, 6]
+
+n = len(p)
+J = range(n)
+
+# 모든 순서와 total tardiness 출력
+for order in permutations(J):
+    total_T = calc_total_tardiness(order, p, d)
+    # job 번호를 1부터 출력하기 위해 +1
+    order_1based = [j+1 for j in order]
+    print(order_1based, "=> Total tardiness =", total_T)
+
+# enumeration으로 최적 찾기
+def enumerate_all(p, d):
+    n = len(p)
+    J = range(n)                 
+    best_order = None
+    best_T = float("inf")
+
+    for order in permutations(J):
+        total_T = calc_total_tardiness(order, p, d)
+        if total_T < best_T:
+            best_T = total_T
+            best_order = order
+
+    # 최적 순서도 1-based로 변환해서 반환
+    return [j+1 for j in best_order], best_T
+
+best_order, best_T = enumerate_all(p, d)
+print("\n=== 최적 (Enumeration) ===")
+print("Best order:", best_order, "Total tardiness:", best_T)
+
+# 정렬 기준 함수
+def due_date(j):
+    return d[j]
+
+def proc_time(j):
+    return p[j]
+
+# === 규칙 기반 스케줄 ===
+def rule_based_schedules(p, d):
+    n = len(p)
+    J = range(n)
+
+    # 전역 접근 대신 내부 함수에서 p,d 사용하려면 전역 참조 필요
+    # 여기서는 due_date, proc_time이 외부 p,d를 그대로 참조
+
+    # EDD rule (납기 순)
+    order_edd = sorted(J, key=due_date)
+    total_edd = calc_total_tardiness(order_edd, p, d)
+
+    # SPT rule (처리시간 순)
+    order_spt = sorted(J, key=proc_time)
+    total_spt = calc_total_tardiness(order_spt, p, d)
+
+    return {
+        "EDD": ([j+1 for j in order_edd], total_edd),
+        "SPT": ([j+1 for j in order_spt], total_spt)
+    }
+
+# === 예시 데이터 ===
+p = [2, 4, 3]
+d = [3, 2, 6]
+
+rules = rule_based_schedules(p, d)
+
+print("=== 규칙 기반 스케줄 결과 ===")
+for name, (order, total_T) in rules.items():
+    print(f"{name}: 순서={order}, Total tardiness={total_T}")
